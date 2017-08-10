@@ -3,11 +3,6 @@ package io.logz.jmx2graphite;
 import static io.logz.jmx2graphite.GraphiteProtocol.TCP;
 import static io.logz.jmx2graphite.GraphiteProtocol.UDP;
 
-import com.codahale.metrics.graphite.Graphite;
-import com.codahale.metrics.graphite.GraphiteSender;
-import com.codahale.metrics.graphite.GraphiteUDP;
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -16,9 +11,17 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.List;
+
 import javax.net.SocketFactory;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.codahale.metrics.graphite.Graphite;
+import com.codahale.metrics.graphite.GraphiteSender;
+import com.codahale.metrics.graphite.GraphiteUDP;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 public class GraphiteClient implements Closeable {
     private static final Logger logger = LoggerFactory.getLogger(GraphiteClient.class);
@@ -26,15 +29,13 @@ public class GraphiteClient implements Closeable {
     private String metricsPrefix;
     private int failuresAtLastWrite = 0;
 
-    public GraphiteClient(String serviceHost, String serviceName, String graphiteHostname, int graphitePort,
-                          int connectTimeout, int socketTimeout, int writeTimeoutMs,
-                          GraphiteProtocol protocol) {
+    public GraphiteClient(String serviceHost, String serviceName, String graphiteHostname, int graphitePort, int connectTimeout, int socketTimeout, int writeTimeoutMs, GraphiteProtocol protocol) {
         List<String> prefixElements = Lists.newArrayList();
         if (serviceName != null && !serviceName.isEmpty()) {
             prefixElements.add(sanitizeMetricName(serviceName));
         }
         if (serviceHost != null && !serviceHost.isEmpty()) {
-            prefixElements.add(sanitizeMetricName(serviceHost, /*keepDot*/ false));
+            prefixElements.add(sanitizeMetricName(serviceHost, /* keepDot */ false));
         }
         if (!prefixElements.isEmpty()) {
             metricsPrefix = Joiner.on('.').join(prefixElements).concat(".");
@@ -43,22 +44,20 @@ public class GraphiteClient implements Closeable {
         }
 
         logger.info("Graphite metrics prefix: {}", metricsPrefix);
-        logger.info("Graphite Client: using writeTimeoutMs of {} [ms]. Establishing connection..." ,writeTimeoutMs);
+        logger.info("Graphite Client: using writeTimeoutMs of {} [ms]. Establishing connection...", writeTimeoutMs);
 
         SocketFactory socketFactory = new SocketFactoryWithTimeouts(connectTimeout, socketTimeout);
         if (protocol == UDP) {
             graphite = new GraphiteUDP(new InetSocketAddress(graphiteHostname, graphitePort));
         } else if (protocol == TCP) {
-            graphite = new Graphite(new InetSocketAddress(graphiteHostname, graphitePort),
-                                    socketFactory);
+            graphite = new Graphite(new InetSocketAddress(graphiteHostname, graphitePort), socketFactory);
         } else {
-            graphite = new PickledGraphite(new InetSocketAddress(graphiteHostname, graphitePort),
-                                           socketFactory, /*batchSize */ 400, writeTimeoutMs);
+            graphite = new PickledGraphite(new InetSocketAddress(graphiteHostname, graphitePort), socketFactory, /* batchSize */ 400, writeTimeoutMs);
         }
     }
 
     public static String sanitizeMetricName(String s) {
-        return sanitizeMetricName(s, /*keepDot*/ true);
+        return sanitizeMetricName(s, /* keepDot */ true);
     }
 
     public static String sanitizeMetricName(String s, boolean keepDot) {
@@ -90,7 +89,7 @@ public class GraphiteClient implements Closeable {
                 graphite.connect();
             }
         } catch (Exception e) {
-            throw new GraphiteWriteFailed("Failed connecting to Graphite. Error = "+e.getClass()+": "+e.getMessage(), e);
+            throw new GraphiteWriteFailed("Failed connecting to Graphite. Error = " + e.getClass() + ": " + e.getMessage(), e);
         }
 
         int failuresBefore = graphite.getFailures();
@@ -98,13 +97,13 @@ public class GraphiteClient implements Closeable {
             try {
                 graphite.send(metricsPrefix + mv.getName(), mv.getValue().toString(), mv.getTimestampSeconds());
             } catch (Exception e) {
-                throw new GraphiteWriteFailed("Failed writing metric to graphite. Error = "+e.getMessage(), e);
+                throw new GraphiteWriteFailed("Failed writing metric to graphite. Error = " + e.getMessage(), e);
             }
         }
         try {
             graphite.flush();
         } catch (Exception e) {
-            throw new GraphiteWriteFailed("Failed writing metrics to graphite (flush). Error = "+e.getMessage(), e);
+            throw new GraphiteWriteFailed("Failed writing metrics to graphite (flush). Error = " + e.getMessage(), e);
         }
         failuresAtLastWrite = graphite.getFailures() - failuresBefore;
     }

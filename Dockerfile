@@ -9,5 +9,8 @@ ADD build/distributions/*.tar /
 
 RUN mkdir -p /var/log/jmx2graphite
 
+RUN mkdir /opt/jmx2graphite/ext_conf
+VOLUME /opt/jmx2graphite/ext_conf
+
 # Default Start
 CMD /opt/jmx2graphite/bin/jmx2graphite

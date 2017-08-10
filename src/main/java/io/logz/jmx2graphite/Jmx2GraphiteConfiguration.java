@@ -1,27 +1,25 @@
 package io.logz.jmx2graphite;
 
-import com.typesafe.config.Config;
-
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+
+import com.typesafe.config.Config;
+
+import io.logz.jmx2graphite.Jmx2GraphiteServiceConfiguration.MetricClientType;
 
 /**
  * @author amesika
  */
 public class Jmx2GraphiteConfiguration {
-    
-    private String jolokiaFullUrl;
 
     private Graphite graphite;
 
-    /* Short name of the sampled service, required = false */
-    private String serviceName = null;
-
-    /* host of the sampled service */
-    private String serviceHost = null;
+    private List<Jmx2GraphiteServiceConfiguration> services;
 
     /* Metrics polling interval in seconds */
     private int metricsPollingIntervalInSeconds;
@@ -30,16 +28,10 @@ public class Jmx2GraphiteConfiguration {
     private int graphiteWriteTimeoutMs;
 
     // Which client should we use
-    private MetricClientType metricClientType;
     private GraphiteProtocol graphiteProtocol;
 
     public GraphiteProtocol getGraphiteProtocol() {
         return graphiteProtocol;
-    }
-
-    public enum MetricClientType {
-        JOLOKIA,
-        MBEAN_PLATFORM
     }
 
     private class Graphite {
@@ -48,50 +40,61 @@ public class Jmx2GraphiteConfiguration {
     }
 
     public Jmx2GraphiteConfiguration(Config config) throws IllegalConfiguration {
-        if (config.hasPath("service.host")) {
-            serviceHost = config.getString("service.host");
-        }
 
-        if (config.hasPath("service.poller.jolokia")) {
-            metricClientType = MetricClientType.JOLOKIA;
-        }
-        else if (config.hasPath("service.poller.mbean-direct")) {
-            metricClientType = MetricClientType.MBEAN_PLATFORM;
-        }
+        services = new ArrayList<>();
+        List<? extends Config> serviceConfigs = config.getConfigList("services");
 
-        if (this.metricClientType == MetricClientType.JOLOKIA) {
-            jolokiaFullUrl = config.getString("service.poller.jolokia.jolokiaFullUrl");
-            String jolokiaHost;
-            try {
-                URL jolokia = new URL(jolokiaFullUrl);
-                jolokiaHost = jolokia.getHost();
-            } catch (MalformedURLException e) {
-                throw new IllegalConfiguration("service.jolokiaFullUrl must be a valid URL. Error = " + e.getMessage());
+        for (Config serviceConfig : serviceConfigs) {
+
+            String serviceName = serviceConfig.getString("name");
+            String serviceHost = null;
+            String jolokiaFullUrl = null;
+            MetricClientType metricClientType = MetricClientType.UNKNOWN;
+
+            if (serviceConfig.hasPath("host")) {
+                serviceHost = serviceConfig.getString("host");
             }
 
-            // Setting jolokia url as default
-            if (serviceHost == null) {
-                serviceHost = jolokiaHost;
+            if (serviceConfig.hasPath("poller.jolokia")) {
+                metricClientType = MetricClientType.JOLOKIA;
+            } else if (serviceConfig.hasPath("poller.mbean-direct")) {
+                metricClientType = MetricClientType.MBEAN_PLATFORM;
             }
 
-        } else if (this.metricClientType == MetricClientType.MBEAN_PLATFORM) {
-
-            // Try to find hostname as default to serviceHost in case it was not provided
-            if (serviceHost == null) {
+            if (metricClientType == MetricClientType.JOLOKIA) {
+                jolokiaFullUrl = serviceConfig.getString("poller.jolokia.jolokiaFullUrl");
+                String jolokiaHost;
                 try {
-                    serviceHost = InetAddress.getLocalHost().getHostName();
-                } catch (UnknownHostException e) {
-                    throw new IllegalConfiguration("service.host was not defined, and could not determine it from the servers hostname");
+                    URL jolokia = new URL(jolokiaFullUrl);
+                    jolokiaHost = jolokia.getHost();
+                } catch (MalformedURLException e) {
+                    throw new IllegalConfiguration("service.jolokiaFullUrl must be a valid URL. Error = " + e.getMessage());
+                }
+
+                // Setting jolokia url as default
+                if (serviceHost == null) {
+                    serviceHost = jolokiaHost;
+                }
+
+            } else if (metricClientType == MetricClientType.MBEAN_PLATFORM) {
+
+                // Try to find hostname as default to serviceHost in case it was not provided
+                if (serviceHost == null) {
+                    try {
+                        serviceHost = InetAddress.getLocalHost().getHostName();
+                    } catch (UnknownHostException e) {
+                        throw new IllegalConfiguration("service.host was not defined, and could not determine it from the servers hostname");
+                    }
                 }
             }
+
+            services.add(new Jmx2GraphiteServiceConfiguration(metricClientType, serviceHost, serviceName, jolokiaFullUrl));
         }
 
         graphite = new Graphite();
         graphite.hostname = config.getString("graphite.hostname");
         graphite.port = config.getInt("graphite.port");
         metricsPollingIntervalInSeconds = config.getInt("metricsPollingIntervalInSeconds");
-
-        serviceName = config.getString("service.name");
 
         graphiteConnectTimeout = config.getInt("graphite.connectTimeout");
         graphiteSocketTimeout = config.getInt("graphite.socketTimeout");
@@ -104,19 +107,11 @@ public class Jmx2GraphiteConfiguration {
     }
 
     private GraphiteProtocol getGraphiteProtocol(Config config) {
-        String protocol = config.getString("graphite.protocol");
+        String protocol = config.hasPath("graphite.protocol") ? config.getString("graphite.protocol") : null;
         if (protocol != null) {
             return GraphiteProtocol.valueOf(protocol.toUpperCase());
         }
         return null;
-    }
-
-    public String getJolokiaFullUrl() {
-        return jolokiaFullUrl;
-    }
-
-    public void setJolokiaFullUrl(String jolokiaFullUrl) {
-        this.jolokiaFullUrl = jolokiaFullUrl;
     }
 
     public String getGraphiteHostname() {
@@ -135,20 +130,8 @@ public class Jmx2GraphiteConfiguration {
         this.graphite.port = graphitePort;
     }
 
-    public String getServiceName() {
-        return serviceName;
-    }
-
-    public void setServiceName(String serviceName) {
-        this.serviceName = serviceName;
-    }
-
-    public String getServiceHost() {
-        return serviceHost;
-    }
-
-    public void setServiceHost(String serviceHost) {
-        this.serviceHost = serviceHost;
+    public List<Jmx2GraphiteServiceConfiguration> getServices() {
+        return services;
     }
 
     public int getMetricsPollingIntervalInSeconds() {
@@ -169,14 +152,6 @@ public class Jmx2GraphiteConfiguration {
 
     public void setGraphiteWriteTimeoutMs(int graphiteWriteTimeoutMs) {
         this.graphiteWriteTimeoutMs = graphiteWriteTimeoutMs;
-    }
-
-    public MetricClientType getMetricClientType() {
-        return metricClientType;
-    }
-
-    public void setMetricClientType(MetricClientType metricClientType) {
-        this.metricClientType = metricClientType;
     }
 
     public int getGraphiteConnectTimeout() {

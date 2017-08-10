@@ -1,15 +1,7 @@
 package io.logz.jmx2graphite;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.google.common.base.Stopwatch;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import org.apache.commons.io.IOUtils;
-import org.apache.http.HttpResponse;
-import org.apache.http.entity.ContentType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.apache.http.client.fluent.Request.Get;
+import static org.apache.http.client.fluent.Request.Post;
 
 import java.io.IOException;
 import java.net.URI;
@@ -19,8 +11,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static org.apache.http.client.fluent.Request.Get;
-import static org.apache.http.client.fluent.Request.Post;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpResponse;
+import org.apache.http.entity.ContentType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.google.common.base.Stopwatch;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * @author amesika
@@ -28,33 +29,32 @@ import static org.apache.http.client.fluent.Request.Post;
 public class JolokiaClient extends MBeanClient {
 
     private static final Logger logger = LoggerFactory.getLogger(JolokiaClient.class);
-    private String jolokiaFullURL;
+
     private int connectTimeout = (int) TimeUnit.SECONDS.toMillis(30);
     private int socketTimeout = (int) TimeUnit.SECONDS.toMillis(30);
 
     private ObjectMapper objectMapper;
     private Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private String jolokiaFullURL;
 
-    public JolokiaClient(String jolokiaFullURL) {
-        this.jolokiaFullURL = jolokiaFullURL;
-        if (!jolokiaFullURL.endsWith("/")) {
-            this.jolokiaFullURL = jolokiaFullURL +"/";
-        }
+    public JolokiaClient(Jmx2GraphiteServiceConfiguration service) {
+        super(service);
         objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
+        jolokiaFullURL = getService().getJolokiaFullUrl();
+        if (!jolokiaFullURL.endsWith("/")) {
+            jolokiaFullURL = jolokiaFullURL + "/";
+        }
     }
 
     public List<MetricBean> getBeans() throws MBeanClientPollingFailure {
         try {
             stopwatch.reset().start();
             logger.debug("Retrieving /list of bean from Jolokia ({})...", jolokiaFullURL);
-            HttpResponse httpResponse = Get(new URI(jolokiaFullURL + "list?canonicalNaming=false"))
-                    .connectTimeout(connectTimeout)
-                    .socketTimeout(socketTimeout)
-                    .execute().returnResponse();
+            HttpResponse httpResponse = Get(new URI(jolokiaFullURL + "list?canonicalNaming=false")).connectTimeout(connectTimeout).socketTimeout(socketTimeout).execute().returnResponse();
             logger.debug("GET /list from jolokia took {} ms", stopwatch.stop().elapsed(TimeUnit.DAYS.MILLISECONDS));
             if (httpResponse.getStatusLine().getStatusCode() != 200) {
-                throw new RuntimeException("Failed listing beans from jolokia. Response = "+httpResponse.getStatusLine());
+                throw new RuntimeException("Failed listing beans from jolokia. Response = " + httpResponse.getStatusLine());
             }
 
             Map<String, Object> listResponse = objectMapper.readValue(httpResponse.getEntity().getContent(), Map.class);
@@ -63,8 +63,8 @@ public class JolokiaClient extends MBeanClient {
                 throw new RuntimeException("Response doesn't have value attribute expected from a list response");
             }
             return extractMetricsBeans(domains);
-        } catch (URISyntaxException  | IOException e) {
-            throw new MBeanClientPollingFailure("Failed retrieving list of beans from Jolokia. Error = "+e.getMessage(), e);
+        } catch (URISyntaxException | IOException e) {
+            throw new MBeanClientPollingFailure("Failed retrieving list of beans from Jolokia. Error = " + e.getMessage(), e);
         }
     }
 
@@ -76,21 +76,20 @@ public class JolokiaClient extends MBeanClient {
 
         try {
             String requestBody = objectMapper.writeValueAsString(readRequests);
-            if (logger.isTraceEnabled()) logger.trace("Jolokia getBeans request body: {}", requestBody);
+            if (logger.isTraceEnabled())
+                logger.trace("Jolokia getBeans request body: {}", requestBody);
 
-            HttpResponse httpResponse = Post(jolokiaFullURL+"read?ignoreErrors=true&canonicalNaming=false")
-                    .connectTimeout(connectTimeout)
-                    .socketTimeout(socketTimeout)
-                    .bodyString(requestBody, ContentType.APPLICATION_JSON)
-                    .execute().returnResponse();
+            HttpResponse httpResponse = Post(jolokiaFullURL + "read?ignoreErrors=true&canonicalNaming=false").connectTimeout(connectTimeout).socketTimeout(socketTimeout)
+                    .bodyString(requestBody, ContentType.APPLICATION_JSON).execute().returnResponse();
 
             if (httpResponse.getStatusLine().getStatusCode() != 200) {
-                throw new RuntimeException("Failed reading beans from jolokia. Response = "+httpResponse.getStatusLine());
+                throw new RuntimeException("Failed reading beans from jolokia. Response = " + httpResponse.getStatusLine());
             }
 
-            String responseBody =  IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
+            String responseBody = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
 
-            if (logger.isTraceEnabled()) logger.trace("Jolokia getBeans response:\n{}", responseBody);
+            if (logger.isTraceEnabled())
+                logger.trace("Jolokia getBeans response:\n{}", responseBody);
 
             ArrayList<Map<String, Object>> responses = objectMapper.readValue(responseBody, ArrayList.class);
 
@@ -100,9 +99,9 @@ public class JolokiaClient extends MBeanClient {
                 String mbeanName = (String) request.get("mbean");
                 int status = (int) response.get("status");
                 if (status != 200) {
-                    String errMsg = "Failed reading mbean '" + mbeanName +"': "+status+" - "+response.get("error");
+                    String errMsg = "Failed reading mbean '" + mbeanName + "': " + status + " - " + response.get("error");
                     if (logger.isDebugEnabled()) {
-                        logger.debug(errMsg +". Stacktrace = {}", response.get("stacktrace"));
+                        logger.debug(errMsg + ". Stacktrace = {}", response.get("stacktrace"));
                     } else {
                         logger.warn(errMsg);
                     }
@@ -114,18 +113,15 @@ public class JolokiaClient extends MBeanClient {
                 Map<String, Number> metricToValue = flatten(attrValues);
                 for (String attrMetricName : metricToValue.keySet()) {
                     try {
-                        metricValues.add(new MetricValue(
-                                GraphiteClient.sanitizeMetricName(mbeanName, /*keepDot*/ true) + "." + attrMetricName,
-                                metricToValue.get(attrMetricName),
-                                metricTime));
+                        metricValues.add(new MetricValue(GraphiteClient.sanitizeMetricName(mbeanName, /* keepDot */ true) + "." + attrMetricName, metricToValue.get(attrMetricName), metricTime));
                     } catch (IllegalArgumentException e) {
-                        logger.info("Can't sent Metric since it's invalid: "+e.getMessage());
+                        logger.info("Can't sent Metric since it's invalid: " + e.getMessage());
                     }
                 }
             }
             return metricValues;
         } catch (IOException e) {
-            throw new MBeanClientPollingFailure("Failed reading beans from Jolokia. Error = "+e.getMessage(), e);
+            throw new MBeanClientPollingFailure("Failed reading beans from Jolokia. Error = " + e.getMessage(), e);
         }
     }
 
@@ -153,14 +149,12 @@ public class JolokiaClient extends MBeanClient {
                 Map<String, Number> flattenValueTree = flatten((Map) value);
 
                 for (String internalMetricName : flattenValueTree.keySet()) {
-                    metricValues.put(
-                            GraphiteClient.sanitizeMetricName(key, /*keepDot*/ false) + "."
-                                    + GraphiteClient.sanitizeMetricName(internalMetricName, /*keepDot*/ false),
+                    metricValues.put(GraphiteClient.sanitizeMetricName(key, /* keepDot */ false) + "." + GraphiteClient.sanitizeMetricName(internalMetricName, /* keepDot */ false),
                             flattenValueTree.get(internalMetricName));
                 }
             } else {
                 if (value instanceof Number) {
-                    metricValues.put(GraphiteClient.sanitizeMetricName(key, /*keepDot*/ false), (Number) value);
+                    metricValues.put(GraphiteClient.sanitizeMetricName(key, /* keepDot */ false), (Number) value);
                 }
             }
         }

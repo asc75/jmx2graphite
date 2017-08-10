@@ -1,18 +1,5 @@
 package io.logz.jmx2graphite;
 
-import com.fasterxml.jackson.annotation.JsonAutoDetect;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.management.*;
-import javax.management.openmbean.CompositeData;
-import javax.management.openmbean.TabularData;
 import java.lang.management.ManagementFactory;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -20,6 +7,30 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import javax.management.AttributeList;
+import javax.management.InstanceNotFoundException;
+import javax.management.IntrospectionException;
+import javax.management.MBeanAttributeInfo;
+import javax.management.MBeanInfo;
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectInstance;
+import javax.management.ObjectName;
+import javax.management.ReflectionException;
+import javax.management.openmbean.CompositeData;
+import javax.management.openmbean.TabularData;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * Created by roiravhon on 6/6/16.
@@ -31,7 +42,8 @@ public class JavaAgentClient extends MBeanClient {
     private final MBeanServer server;
     private final ObjectMapper objectMapper;
 
-    public JavaAgentClient() {
+    public JavaAgentClient(Jmx2GraphiteServiceConfiguration service) {
+        super(service);
 
         server = ManagementFactory.getPlatformMBeanServer();
 
@@ -68,33 +80,29 @@ public class JavaAgentClient extends MBeanClient {
     }
 
     @Override
-    public List<MetricValue> getMetrics(List<MetricBean> beans) throws MBeanClientPollingFailure{
+    public List<MetricValue> getMetrics(List<MetricBean> beans) throws MBeanClientPollingFailure {
 
         List<MetricValue> metricValues = Lists.newArrayList();
         long metricTime = LocalDate.now().atStartOfDay(ZoneId.of("UTC")).toEpochSecond();
 
         for (MetricBean metricBean : beans) {
             try {
-                AttributeList attributeList = server.getAttributes(new ObjectName(metricBean.getName()),
-                                                                   metricBean.getAttributes().toArray(new String[0]));
+                AttributeList attributeList = server.getAttributes(new ObjectName(metricBean.getName()), metricBean.getAttributes().toArray(new String[0]));
 
                 Map<String, Object> attrValues = new HashMap<>(attributeList.size());
-                attributeList.asList().forEach((attr) ->
-                        attrValues.put(attr.getName(), attr.getValue()));
+                attributeList.asList().forEach((attr) -> attrValues.put(attr.getName(), attr.getValue()));
 
                 Map<String, Number> metricToValue = flatten(attrValues);
 
                 for (String attrMetricName : metricToValue.keySet()) {
                     try {
-                        metricValues.add(new MetricValue(
-                                GraphiteClient.sanitizeMetricName(metricBean.getName(), /*keepDot*/ true) + "." + attrMetricName,
-                                metricToValue.get(attrMetricName),
-                                metricTime));
+                        metricValues.add(
+                                new MetricValue(GraphiteClient.sanitizeMetricName(metricBean.getName(), /* keepDot */ true) + "." + attrMetricName, metricToValue.get(attrMetricName), metricTime));
                     } catch (IllegalArgumentException e) {
                         logger.info("Failed converting metric name to Graphite-friendly name: metricsBean.getName = {}, attrMetricName = {}", metricBean.getName(), attrMetricName, e);
                     }
                 }
-            } catch (MalformedObjectNameException | ReflectionException | InstanceNotFoundException | IllegalArgumentException e ) {
+            } catch (MalformedObjectNameException | ReflectionException | InstanceNotFoundException | IllegalArgumentException e) {
                 throw new MBeanClientPollingFailure(e.getMessage(), e);
             }
         }
@@ -110,9 +118,10 @@ public class JavaAgentClient extends MBeanClient {
             if (value == null) {
                 continue;
             }
-            if (value.getClass().isArray()) continue;
+            if (value.getClass().isArray())
+                continue;
             else if (value instanceof Number) {
-                metricValues.put(GraphiteClient.sanitizeMetricName(key, /*keepDot*/ false), (Number) value);
+                metricValues.put(GraphiteClient.sanitizeMetricName(key, /* keepDot */ false), (Number) value);
             } else if (value instanceof CompositeData) {
                 CompositeData data = (CompositeData) value;
                 Map<String, Object> valueMap = handleCompositeData(data);
@@ -124,7 +133,8 @@ public class JavaAgentClient extends MBeanClient {
             } else if (!(value instanceof String) && !(value instanceof Boolean)) {
                 Map<String, Object> valueMap;
                 try {
-                    valueMap = objectMapper.convertValue(value, new TypeReference<Map<String, Object>>() {});
+                    valueMap = objectMapper.convertValue(value, new TypeReference<Map<String, Object>>() {
+                    });
                 } catch (Exception e) {
                     logger.trace("Can't convert attribute named {} with class type {}", key, value.getClass().getCanonicalName());
                     continue;
@@ -163,10 +173,9 @@ public class JavaAgentClient extends MBeanClient {
         for (String internalMetricName : keyToNumber.keySet()) {
             String resultKey;
             if (key.equalsIgnoreCase("value")) {
-                resultKey =  GraphiteClient.sanitizeMetricName(internalMetricName, /*keepDot*/ false);
+                resultKey = GraphiteClient.sanitizeMetricName(internalMetricName, /* keepDot */ false);
             } else {
-                resultKey = GraphiteClient.sanitizeMetricName(key, /*keepDot*/ false) + "."
-                        + GraphiteClient.sanitizeMetricName(internalMetricName, /*keepDot*/ false);
+                resultKey = GraphiteClient.sanitizeMetricName(key, /* keepDot */ false) + "." + GraphiteClient.sanitizeMetricName(internalMetricName, /* keepDot */ false);
             }
             result.put(resultKey, keyToNumber.get(internalMetricName));
         }

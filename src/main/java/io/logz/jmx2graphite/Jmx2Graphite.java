@@ -1,13 +1,14 @@
 package io.logz.jmx2graphite;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import static io.logz.jmx2graphite.Jmx2GraphiteConfiguration.MetricClientType.JOLOKIA;
-import static io.logz.jmx2graphite.Jmx2GraphiteConfiguration.MetricClientType.MBEAN_PLATFORM;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.logz.jmx2graphite.Jmx2GraphiteServiceConfiguration.MetricClientType;
 
 /**
  * @author amesika
@@ -18,31 +19,34 @@ public class Jmx2Graphite {
 
     private final Jmx2GraphiteConfiguration conf;
     private final ScheduledThreadPoolExecutor taskScheduler;
-    private final MBeanClient client;
+    private final List<MBeanClient> clients;
 
     public Jmx2Graphite(Jmx2GraphiteConfiguration conf) {
         this.conf = conf;
 
-        this.taskScheduler = new ScheduledThreadPoolExecutor(1);
-
-        if (conf.getMetricClientType() == JOLOKIA) {
-            this.client = new JolokiaClient(conf.getJolokiaFullUrl());
-            logger.info("Running with Jolokia URL: {}", conf.getJolokiaFullUrl());
-
-        } else if (conf.getMetricClientType() == MBEAN_PLATFORM) {
-            this.client = new JavaAgentClient();
-            logger.info("Running with Mbean client");
+        this.clients = new ArrayList<>();
+        for (Jmx2GraphiteServiceConfiguration service : conf.getServices()) {
+            if (service.getMetricClientType() == MetricClientType.JOLOKIA) {
+                this.clients.add(new JolokiaClient(service));
+                logger.info("Running with Jolokia URL: {}", service.getJolokiaFullUrl());
+            } else if (service.getMetricClientType() == MetricClientType.MBEAN_PLATFORM) {
+                this.clients.add(new JavaAgentClient(conf.getServices().get(0)));
+                logger.info("Running with Mbean client");
+            } else {
+                throw new IllegalConfiguration("Unsupported client type: " + service.getMetricClientType());
+            }
         }
-        else {
-            throw new IllegalConfiguration("Unsupported client type: " + conf.getMetricClientType());
-        }
+
+        this.taskScheduler = new ScheduledThreadPoolExecutor(clients.size());
     }
 
     public void run() {
         logger.info("Graphite: host = {}, port = {}", conf.getGraphiteHostname(), conf.getGraphitePort());
         enableHangupSupport();
-        MetricsPipeline pipeline = new MetricsPipeline(conf, client);
-        taskScheduler.scheduleWithFixedDelay(pipeline::pollAndSend, 0, conf.getMetricsPollingIntervalInSeconds(), TimeUnit.SECONDS);
+        for (MBeanClient client : clients) {
+            MetricsPipeline pipeline = new MetricsPipeline(conf, client);
+            taskScheduler.scheduleWithFixedDelay(pipeline::pollAndSend, 0, conf.getMetricsPollingIntervalInSeconds(), TimeUnit.SECONDS);
+        }
     }
 
     private void shutdown() {
@@ -68,7 +72,8 @@ public class Jmx2Graphite {
     }
 
     /**
-     * A class for intercepting the hang up signal and do a graceful shutdown of the Camel.
+     * A class for intercepting the hang up signal and do a graceful shutdown of
+     * the Camel.
      */
     private static final class HangupInterceptor extends Thread {
         private Logger logger = LoggerFactory.getLogger(HangupInterceptor.class);

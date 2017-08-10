@@ -1,15 +1,11 @@
 package io.logz.jmx2graphite;
 
-import com.codahale.metrics.graphite.GraphiteSender;
-import com.google.common.base.Throwables;
-import com.google.common.io.Closeables;
-import com.nurkiewicz.asyncretry.AsyncRetryExecutor;
-import com.nurkiewicz.asyncretry.RetryExecutor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.net.SocketFactory;
-import java.io.*;
+import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
@@ -18,13 +14,31 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
+import javax.net.SocketFactory;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.codahale.metrics.graphite.GraphiteSender;
+import com.google.common.base.Throwables;
+import com.google.common.io.Closeables;
+import com.nurkiewicz.asyncretry.AsyncRetryExecutor;
+import com.nurkiewicz.asyncretry.RetryExecutor;
+
 /**
- * A client to a Carbon server that sends all metrics after they have been pickled in configurable sized batches
+ * A client to a Carbon server that sends all metrics after they have been
+ * pickled in configurable sized batches
  * 
- * NOTE: Thi is taken from com.codahale.metrics.graphite.PickledGraphite version 3.1.2, until they will
+ * NOTE: Thi is taken from com.codahale.metrics.graphite.PickledGraphite version
+ * 3.1.2, until they will
  * add a write timeout
  */
 public class PickledGraphite implements GraphiteSender {
@@ -55,7 +69,8 @@ public class PickledGraphite implements GraphiteSender {
     private final RetryExecutor executor;
 
     /**
-     * Creates a new client which connects to the given address using the default {@link SocketFactory}. This defaults
+     * Creates a new client which connects to the given address using the
+     * default {@link SocketFactory}. This defaults
      * to a batchSize of 100
      *
      * @param address
@@ -66,49 +81,57 @@ public class PickledGraphite implements GraphiteSender {
     }
 
     /**
-     * Creates a new client which connects to the given address using the default {@link SocketFactory}.
+     * Creates a new client which connects to the given address using the
+     * default {@link SocketFactory}.
      *
      * @param address
      *            the address of the Carbon server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      */
     public PickledGraphite(InetSocketAddress address, int batchSize) {
         this(address, SocketFactory.getDefault(), batchSize);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory.
+     * Creates a new client which connects to the given address and socket
+     * factory.
      *
      * @param address
      *            the address of the Carbon server
      * @param socketFactory
      *            the socket factory
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      */
     public PickledGraphite(InetSocketAddress address, SocketFactory socketFactory, int batchSize) {
         this(address, socketFactory, UTF_8, batchSize);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory.
+     * Creates a new client which connects to the given address and socket
+     * factory.
      *
      * @param address
      *            the address of the Carbon server
      * @param socketFactory
      *            the socket factory
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      * @param writeTimeoutMs
-     *            The timeout in milliseconds for writing the batched metrics to the socket (As a whole)
+     *            The timeout in milliseconds for writing the batched metrics to
+     *            the socket (As a whole)
      */
     public PickledGraphite(InetSocketAddress address, SocketFactory socketFactory, int batchSize, int writeTimeoutMs) {
         this(address, socketFactory, UTF_8, batchSize, writeTimeoutMs);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory using the given character set.
+     * Creates a new client which connects to the given address and socket
+     * factory using the given character set.
      *
      * @param address
      *            the address of the Carbon server
@@ -117,14 +140,16 @@ public class PickledGraphite implements GraphiteSender {
      * @param charset
      *            the character set used by the server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      */
     public PickledGraphite(InetSocketAddress address, SocketFactory socketFactory, Charset charset, int batchSize) {
         this(address, socketFactory, charset, batchSize, DEFAULT_WRITE_TIMEOUT_MS);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory using the given character set.
+     * Creates a new client which connects to the given address and socket
+     * factory using the given character set.
      *
      * @param address
      *            the address of the Carbon server
@@ -133,17 +158,19 @@ public class PickledGraphite implements GraphiteSender {
      * @param charset
      *            the character set used by the server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      * @param writeTimeoutMs
-     *            The timeout in milliseconds for writing the batched metrics to the socket (As a whole)
+     *            The timeout in milliseconds for writing the batched metrics to
+     *            the socket (As a whole)
      */
-    public PickledGraphite(InetSocketAddress address, SocketFactory socketFactory, Charset charset, int batchSize,
-                           int writeTimeoutMs) {
+    public PickledGraphite(InetSocketAddress address, SocketFactory socketFactory, Charset charset, int batchSize, int writeTimeoutMs) {
         this(address, null, -1, socketFactory, charset, batchSize, writeTimeoutMs);
     }
 
     /**
-     * Creates a new client which connects to the given address using the default {@link SocketFactory}. This defaults
+     * Creates a new client which connects to the given address using the
+     * default {@link SocketFactory}. This defaults
      * to a batchSize of 100
      *
      * @param hostname
@@ -156,37 +183,43 @@ public class PickledGraphite implements GraphiteSender {
     }
 
     /**
-     * Creates a new client which connects to the given address using the default {@link SocketFactory}.
+     * Creates a new client which connects to the given address using the
+     * default {@link SocketFactory}.
      *
      * @param hostname
      *            the hostname of the Carbon server
      * @param port
      *            the port of the Carbon server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      */
     public PickledGraphite(String hostname, int port, int batchSize) {
         this(hostname, port, SocketFactory.getDefault(), batchSize, DEFAULT_WRITE_TIMEOUT_MS);
     }
 
     /**
-     * Creates a new client which connects to the given address using the default {@link SocketFactory}.
+     * Creates a new client which connects to the given address using the
+     * default {@link SocketFactory}.
      *
      * @param hostname
      *            the hostname of the Carbon server
      * @param port
      *            the port of the Carbon server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      * @param writeTimeoutMs
-     *            The timeout in milliseconds for writing the batched metrics to the socket (As a whole)
+     *            The timeout in milliseconds for writing the batched metrics to
+     *            the socket (As a whole)
      */
     public PickledGraphite(String hostname, int port, int batchSize, int writeTimeoutMs) {
         this(hostname, port, SocketFactory.getDefault(), batchSize, writeTimeoutMs);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory.
+     * Creates a new client which connects to the given address and socket
+     * factory.
      *
      * @param hostname
      *            the hostname of the Carbon server
@@ -195,16 +228,19 @@ public class PickledGraphite implements GraphiteSender {
      * @param socketFactory
      *            the socket factory
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      * @param writeTimeoutMs
-     *            The timeout in milliseconds for writing the batched metrics to the socket (As a whole)
+     *            The timeout in milliseconds for writing the batched metrics to
+     *            the socket (As a whole)
      */
     public PickledGraphite(String hostname, int port, SocketFactory socketFactory, int batchSize, int writeTimeoutMs) {
         this(null, hostname, port, socketFactory, UTF_8, batchSize, writeTimeoutMs);
     }
 
     /**
-     * Creates a new client which connects to the given address and socket factory using the given character set.
+     * Creates a new client which connects to the given address and socket
+     * factory using the given character set.
      *
      * @param hostname
      *            the hostname of the Carbon server
@@ -215,12 +251,13 @@ public class PickledGraphite implements GraphiteSender {
      * @param charset
      *            the character set used by the server
      * @param batchSize
-     *            how many metrics are bundled into a single pickle request to graphite
+     *            how many metrics are bundled into a single pickle request to
+     *            graphite
      * @param writeTimeoutMs
-     *            The timeout in milliseconds for writing the batched metrics to the socket (As a whole)
+     *            The timeout in milliseconds for writing the batched metrics to
+     *            the socket (As a whole)
      */
-    public PickledGraphite(InetSocketAddress address, String hostname, int port, SocketFactory socketFactory, Charset charset, int batchSize,
-                           int writeTimeoutMs) {
+    public PickledGraphite(InetSocketAddress address, String hostname, int port, SocketFactory socketFactory, Charset charset, int batchSize, int writeTimeoutMs) {
         this.address = address;
         this.hostname = hostname;
         this.port = port;
@@ -229,19 +266,15 @@ public class PickledGraphite implements GraphiteSender {
         this.batchSize = batchSize;
         this.writeTimeoutMs = writeTimeoutMs;
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        executor = new AsyncRetryExecutor(scheduler)
-                .retryIf(this::brokenPipe)
-                .retryOn(SocketException.class)
-                .withExponentialBackoff(500, 2)     //500ms times 2 after each retry
-                .withMaxDelay(writeTimeoutMs)
-                .withUniformJitter()                //add between +/- 100 ms randomly
-                .withMaxRetries(3)
-                .firstRetryNoDelay();
+        executor = new AsyncRetryExecutor(scheduler).retryIf(this::brokenPipe).retryOn(SocketException.class).withExponentialBackoff(500, 2) //500ms times 2 after each retry
+                .withMaxDelay(writeTimeoutMs).withUniformJitter() //add between +/- 100 ms randomly
+                .withMaxRetries(3).firstRetryNoDelay();
     }
 
     private boolean brokenPipe(Throwable t) {
         return t instanceof SocketException && "Broken pipe".equals(t.getMessage());
     }
+
     @Override
     public void connect() throws IllegalStateException, IOException {
         if (isConnected()) {
@@ -257,7 +290,7 @@ public class PickledGraphite implements GraphiteSender {
 
         this.socket = socketFactory.createSocket(address.getAddress(), address.getPort());
         this.writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), charset));
-        LOGGER.debug("Connected to graphite at "+address);
+        LOGGER.debug("Connected to graphite at " + address);
     }
 
     @Override
@@ -270,7 +303,8 @@ public class PickledGraphite implements GraphiteSender {
      * <p/>
      * (timestamp, (name, value))
      * <p/>
-     * And add it to the list of metrics. If we reach the batch size, write them out.
+     * And add it to the list of metrics. If we reach the batch size, write them
+     * out.
      *
      * @param name
      *            the name of the metric
@@ -323,11 +357,13 @@ public class PickledGraphite implements GraphiteSender {
     }
 
     private void ensureConnected() throws IOException {
-        if (!isConnected()) connect();
+        if (!isConnected())
+            connect();
     }
 
     /**
-     * 1. Run the pickler script to package all the pending metrics into a single message
+     * 1. Run the pickler script to package all the pending metrics into a
+     * single message
      * 2. Send the message to graphite
      * 3. Clear out the list of metrics
      */
@@ -336,11 +372,11 @@ public class PickledGraphite implements GraphiteSender {
         try {
             executor.doWithRetry(retryContext -> {
                 if (retryContext.getRetryCount() > 0) {
-                    LOGGER.info("Failed writing metrics (Error: "+retryContext.getLastThrowable()+"). Trying again (Retry #"+retryContext.getRetryCount()+")");
+                    LOGGER.info("Failed writing metrics (Error: " + retryContext.getLastThrowable() + "). Trying again (Retry #" + retryContext.getRetryCount() + ")");
                 }
                 tryWritingMetrics();
                 if (retryContext.getRetryCount() > 0) {
-                    LOGGER.info("Successfully wrote metrics at attempt #"+(retryContext.getRetryCount()+1));
+                    LOGGER.info("Successfully wrote metrics at attempt #" + (retryContext.getRetryCount() + 1));
                 }
             }).get(writeTimeoutMs, TimeUnit.MILLISECONDS);
 
@@ -352,67 +388,67 @@ public class PickledGraphite implements GraphiteSender {
             throw new RuntimeException("Got interrupted while waiting for pickled metrics to be finished writing to the socket", e);
         } catch (ExecutionException e) {
             this.failures++;
-            throw new RuntimeException("Failed writing pickled metrics to the socket: "+e.getCause().getMessage(), e.getCause());
+            throw new RuntimeException("Failed writing pickled metrics to the socket: " + e.getCause().getMessage(), e.getCause());
         } catch (TimeoutException e) {
             // In case of timeouts let's close so that next write will attempt to open a new socket
             disconnect();
-            throw new IOException("Got timeout ("+writeTimeoutMs+"ms) on waiting for pickled metrics to be written to the socket");
+            throw new IOException("Got timeout (" + writeTimeoutMs + "ms) on waiting for pickled metrics to be written to the socket");
         } finally {
             // if there was an error, we might miss some data. for now, drop those on the floor and
             // try to keep going.
             metrics.clear();
         }
 
-//        if (metrics.size() > 0) {
-//            try {
-//                byte[] payload = pickleMetrics(metrics);
-//                byte[] header = ByteBuffer.allocate(4).putInt(payload.length).array();
-//
-//                Future<?> future = executorService.submit(() -> {
-//                    try {
-//                        OutputStream outputStream = socket.getOutputStream();
-//                        outputStream.write(header);
-//                        outputStream.write(payload);
-//                        outputStream.flush();
-//                    } catch (SocketException e) {
-//                        if (e.getMessage().equals("Broken pipe")) {
-//                            try {
-//                                disconnect();
-//                            } catch (IOException e2) {
-//                                LOGGER.warn("Failed to disconnect from Graphite", e);
-//                            }
-//                            throw e;
-//                        }
-//                    } catch (IOException e) {
-//                        throw Throwables.propagate(e);
-//                    }
-//                });
-//
-//                try {
-//                    future.get(writeTimeoutMs, TimeUnit.MILLISECONDS);
-//                } catch (InterruptedException e) {
-//                    this.failures++;
-//                    throw new RuntimeException("Got interrupted while waiting for pickled metrics to be finished writing to the socket", e);
-//                } catch (ExecutionException e) {
-//                    this.failures++;
-//                    throw new RuntimeException("Failed writing pickled metrics to the socket: "+e.getCause().getMessage(), e.getCause());
-//                } catch (TimeoutException e) {
-//                    // In case of timeouts let's close so that next write will attempt to open a new socket
-//                    disconnect();
-//                    throw new IOException("Got timeout on waiting for pickled metrics to be written to the socket");
-//                }
-//                if (LOGGER.isDebugEnabled()) {
-//                    LOGGER.debug("Wrote {} metrics", metrics.size());
-//                }
-//            } catch (IOException e) {
-//                this.failures++;
-//                throw e;
-//            } finally {
-//                // if there was an error, we might miss some data. for now, drop those on the floor and
-//                // try to keep going.
-//                metrics.clear();
-//            }
-//        }
+        //        if (metrics.size() > 0) {
+        //            try {
+        //                byte[] payload = pickleMetrics(metrics);
+        //                byte[] header = ByteBuffer.allocate(4).putInt(payload.length).array();
+        //
+        //                Future<?> future = executorService.submit(() -> {
+        //                    try {
+        //                        OutputStream outputStream = socket.getOutputStream();
+        //                        outputStream.write(header);
+        //                        outputStream.write(payload);
+        //                        outputStream.flush();
+        //                    } catch (SocketException e) {
+        //                        if (e.getMessage().equals("Broken pipe")) {
+        //                            try {
+        //                                disconnect();
+        //                            } catch (IOException e2) {
+        //                                LOGGER.warn("Failed to disconnect from Graphite", e);
+        //                            }
+        //                            throw e;
+        //                        }
+        //                    } catch (IOException e) {
+        //                        throw Throwables.propagate(e);
+        //                    }
+        //                });
+        //
+        //                try {
+        //                    future.get(writeTimeoutMs, TimeUnit.MILLISECONDS);
+        //                } catch (InterruptedException e) {
+        //                    this.failures++;
+        //                    throw new RuntimeException("Got interrupted while waiting for pickled metrics to be finished writing to the socket", e);
+        //                } catch (ExecutionException e) {
+        //                    this.failures++;
+        //                    throw new RuntimeException("Failed writing pickled metrics to the socket: "+e.getCause().getMessage(), e.getCause());
+        //                } catch (TimeoutException e) {
+        //                    // In case of timeouts let's close so that next write will attempt to open a new socket
+        //                    disconnect();
+        //                    throw new IOException("Got timeout on waiting for pickled metrics to be written to the socket");
+        //                }
+        //                if (LOGGER.isDebugEnabled()) {
+        //                    LOGGER.debug("Wrote {} metrics", metrics.size());
+        //                }
+        //            } catch (IOException e) {
+        //                this.failures++;
+        //                throw e;
+        //            } finally {
+        //                // if there was an error, we might miss some data. for now, drop those on the floor and
+        //                // try to keep going.
+        //                metrics.clear();
+        //            }
+        //        }
     }
 
     private void tryWritingMetrics() throws IOException {
@@ -444,16 +480,7 @@ public class PickledGraphite implements GraphiteSender {
     /**
      * Minimally necessary pickle opcodes.
      */
-    private final char
-            MARK = '(',
-            STOP = '.',
-            LONG = 'L',
-            STRING = 'S',
-            APPEND = 'a',
-            LIST = 'l',
-            TUPLE = 't',
-            QUOTE = '\'',
-            LF = '\n';
+    private final char MARK = '(', STOP = '.', LONG = 'L', STRING = 'S', APPEND = 'a', LIST = 'l', TUPLE = 't', QUOTE = '\'', LF = '\n';
 
     /**
      * See: http://readthedocs.org/docs/graphite/en/1.0/feeding-carbon.html

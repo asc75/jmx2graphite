@@ -5,6 +5,6 @@ package io.logz.jmx2graphite;
  */
 public enum GraphiteProtocol {
 
-  UDP, TCP, PICKLED
+    UDP, TCP, PICKLED
 
 }

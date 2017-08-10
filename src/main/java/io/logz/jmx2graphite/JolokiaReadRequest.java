@@ -1,8 +1,8 @@
 package io.logz.jmx2graphite;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.List;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * @author amesika
@@ -20,7 +20,7 @@ public class JolokiaReadRequest {
 
     public JolokiaReadRequest(String mbeanName, List<String> attributes) {
         this.mbeanName = mbeanName;
-        this.attributes = attributes.toArray(new String[]{});
+        this.attributes = attributes.toArray(new String[] {});
     }
 
     public String[] getAttributes() {

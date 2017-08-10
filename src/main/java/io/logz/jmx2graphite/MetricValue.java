@@ -12,11 +12,11 @@ public class MetricValue {
         final long max = 4294967295L;
 
         if (timestampSeconds < 0) {
-            throw new IllegalArgumentException("timestampSeconds is negative: "+timestampSeconds+ " for metric named '"+name+"'");
+            throw new IllegalArgumentException("timestampSeconds is negative: " + timestampSeconds + " for metric named '" + name + "'");
         }
         // Verifies this in seconds
         if (timestampSeconds > max) {
-            throw new IllegalArgumentException("timestampSeconds ("+timestampSeconds+") is above allowed max value: "+timestampSeconds+ " for metric named '"+name+"'");
+            throw new IllegalArgumentException("timestampSeconds (" + timestampSeconds + ") is above allowed max value: " + timestampSeconds + " for metric named '" + name + "'");
         }
         this.name = name;
         this.value = value;
@@ -37,10 +37,6 @@ public class MetricValue {
 
     @Override
     public String toString() {
-        return "MetricValue{" +
-                "name='" + name + '\'' +
-                ", value=" + value +
-                ", timestampSeconds=" + timestampSeconds +
-                '}';
+        return "MetricValue{" + "name='" + name + '\'' + ", value=" + value + ", timestampSeconds=" + timestampSeconds + '}';
     }
 }

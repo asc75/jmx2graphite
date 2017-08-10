@@ -1,14 +1,15 @@
 package io.logz.jmx2graphite;
 
-import com.google.common.base.Stopwatch;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Stopwatch;
 
 /**
  * @author amesika
@@ -24,10 +25,8 @@ public class MetricsPipeline {
 
     public MetricsPipeline(Jmx2GraphiteConfiguration conf, MBeanClient client) {
 
-        this.graphiteClient = new GraphiteClient(conf.getServiceHost(), conf.getServiceName(), conf.getGraphiteHostname(),
-                                                 conf.getGraphitePort(), conf.getGraphiteConnectTimeout(),
-                                                 conf.getGraphiteSocketTimeout(), conf.getGraphiteWriteTimeoutMs(),
-                                                 conf.getGraphiteProtocol());
+        this.graphiteClient = new GraphiteClient(client.getService().getServiceHost(), client.getService().getServiceName(), conf.getGraphiteHostname(), conf.getGraphitePort(),
+                conf.getGraphiteConnectTimeout(), conf.getGraphiteSocketTimeout(), conf.getGraphiteWriteTimeoutMs(), conf.getGraphiteProtocol());
         this.client = client;
         this.pollingIntervalSeconds = conf.getMetricsPollingIntervalInSeconds();
     }
@@ -37,14 +36,14 @@ public class MetricsPipeline {
             long pollingWindowStartSeconds = getPollingWindowStartSeconds();
             Stopwatch sw = Stopwatch.createStarted();
             List<MetricBean> beans = client.getBeans();
-            logger.info("Found {} metric beans. Time = {}ms, for {}", beans.size(),
-                    sw.stop().elapsed(TimeUnit.MILLISECONDS),
-                    new Date(TimeUnit.SECONDS.toMillis(pollingWindowStartSeconds)));
+            logger.info("Found {} metric beans. Time = {}ms, for {}", beans.size(), sw.stop().elapsed(TimeUnit.MILLISECONDS), new Date(TimeUnit.SECONDS.toMillis(pollingWindowStartSeconds)));
 
             sw.reset().start();
             List<MetricValue> metrics = client.getMetrics(beans);
             logger.info("metrics fetched. Time: {} ms; Metrics: {}", sw.stop().elapsed(TimeUnit.MILLISECONDS), metrics.size());
-            if (logger.isTraceEnabled()) printToFile(metrics);
+            if (logger.isTraceEnabled()) {
+                printToFile(metrics);
+            }
             return changeTimeTo(pollingWindowStartSeconds, metrics);
 
         } catch (MBeanClient.MBeanClientPollingFailure e) {
@@ -57,15 +56,13 @@ public class MetricsPipeline {
         }
     }
 
-    public void pollAndSend()  {
+    public void pollAndSend() {
 
         try {
             List<MetricValue> metrics = poll();
             Stopwatch sw = Stopwatch.createStarted();
             sendToGraphite(metrics);
-            logger.info("metrics sent to Graphite. Time: {} ms, Failed metrics: {}",
-                    sw.stop().elapsed(TimeUnit.MILLISECONDS),
-                    graphiteClient.getFailedAtLastWrite());
+            logger.info("metrics sent to Graphite. Time: {} ms, Failed metrics: {}", sw.stop().elapsed(TimeUnit.MILLISECONDS), graphiteClient.getFailedAtLastWrite());
 
         } catch (GraphiteClient.GraphiteWriteFailed e) {
             if (logger.isDebugEnabled()) {
@@ -92,9 +89,7 @@ public class MetricsPipeline {
     }
 
     private List<MetricValue> changeTimeTo(long newTime, List<MetricValue> metrics) {
-        return metrics.stream()
-                .map(m -> new MetricValue(m.getName(), m.getValue(), newTime))
-                .collect(Collectors.toList());
+        return metrics.stream().map(m -> new MetricValue(m.getName(), m.getValue(), newTime)).collect(Collectors.toList());
     }
 
     private void sendToGraphite(List<MetricValue> metrics) {
@@ -106,7 +101,7 @@ public class MetricsPipeline {
         try {
             graphiteClient.close();
         } catch (IOException e) {
-            logger.info("Failed closing graphite client. Error = "+e.getMessage(), e);
+            logger.info("Failed closing graphite client. Error = " + e.getMessage(), e);
         }
     }
 }
