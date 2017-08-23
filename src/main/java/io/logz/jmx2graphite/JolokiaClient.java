@@ -62,7 +62,7 @@ public class JolokiaClient extends MBeanClient {
             if (domains == null) {
                 throw new RuntimeException("Response doesn't have value attribute expected from a list response");
             }
-            return extractMetricsBeans(domains);
+            return extractMetricsBeans(domains, getService().getDomains());
         } catch (URISyntaxException | IOException e) {
             throw new MBeanClientPollingFailure("Failed retrieving list of beans from Jolokia. Error = " + e.getMessage(), e);
         }
@@ -125,16 +125,20 @@ public class JolokiaClient extends MBeanClient {
         }
     }
 
-    private List<MetricBean> extractMetricsBeans(Map<String, Object> domains) {
+    private List<MetricBean> extractMetricsBeans(Map<String, Object> domains, List<String> filterDomains) {
         List<MetricBean> result = Lists.newArrayList();
         for (String domainName : domains.keySet()) {
-            Map<String, Object> domain = (Map<String, Object>) domains.get(domainName);
-            for (String mbeanName : domain.keySet()) {
-                Map<String, Object> mbean = (Map<String, Object>) domain.get(mbeanName);
-                Map<String, Object> attributes = (Map<String, Object>) mbean.get("attr");
-                if (attributes != null) {
-                    List<String> attrNames = new ArrayList<String>(attributes.keySet());
-                    result.add(new MetricBean(domainName + ":" + mbeanName, attrNames));
+            if (filterDomains.isEmpty() || filterDomains.contains(domainName)) {
+                logger.debug("using domain: " + domainName);
+                Map<String, Object> domain = (Map<String, Object>) domains.get(domainName);
+                for (String mbeanName : domain.keySet()) {
+                    logger.debug("  have bean: " + mbeanName);
+                    Map<String, Object> mbean = (Map<String, Object>) domain.get(mbeanName);
+                    Map<String, Object> attributes = (Map<String, Object>) mbean.get("attr");
+                    if (attributes != null) {
+                        List<String> attrNames = new ArrayList<String>(attributes.keySet());
+                        result.add(new MetricBean(domainName + ":" + mbeanName, attrNames));
+                    }
                 }
             }
         }

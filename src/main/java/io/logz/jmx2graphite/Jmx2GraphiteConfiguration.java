@@ -49,6 +49,7 @@ public class Jmx2GraphiteConfiguration {
             String serviceName = serviceConfig.getString("name");
             String serviceHost = null;
             String jolokiaFullUrl = null;
+            List<String> domains = new ArrayList<>();
             MetricClientType metricClientType = MetricClientType.UNKNOWN;
 
             if (serviceConfig.hasPath("host")) {
@@ -71,6 +72,10 @@ public class Jmx2GraphiteConfiguration {
                     throw new IllegalConfiguration("service.jolokiaFullUrl must be a valid URL. Error = " + e.getMessage());
                 }
 
+                if (serviceConfig.hasPath("poller.jolokia.domains")) {
+                    domains.addAll(serviceConfig.getStringList("poller.jolokia.domains"));
+                }
+
                 // Setting jolokia url as default
                 if (serviceHost == null) {
                     serviceHost = jolokiaHost;
@@ -88,7 +93,7 @@ public class Jmx2GraphiteConfiguration {
                 }
             }
 
-            services.add(new Jmx2GraphiteServiceConfiguration(metricClientType, serviceHost, serviceName, jolokiaFullUrl));
+            services.add(new Jmx2GraphiteServiceConfiguration(metricClientType, serviceHost, serviceName, jolokiaFullUrl, domains));
         }
 
         graphite = new Graphite();
